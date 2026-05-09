@@ -1,0 +1,86 @@
+[package]
+name = "bimbumbam"
+version = "0.6.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A Wayland fullscreen toddler keyboard-basher with colorful, GPU-accelerated visual effects."
+authors = ["Guido Masella <guido.masella@qperfect.io>"]
+license = "MIT"
+repository = "https://github.com/gdmsl/bimbumbam"
+homepage = "https://github.com/gdmsl/bimbumbam"
+readme = "README.md"
+keywords = ["wayland", "toddler", "keyboard", "wgpu", "layer-shell"]
+categories = ["games", "graphics", "gui"]
+exclude = [
+    ".github/",
+    ".direnv/",
+    "target/",
+    "*.tar.gz",
+    "rustfmt.toml",
+]
+
+[lib]
+name = "bimbumbam"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bimbumbam"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+bytemuck = { version = "1", features = ["derive"] }
+calloop = "0.13"
+calloop-wayland-source = "0.3"
+glyphon = "0.11"
+pollster = "0.4"
+rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
+raw-window-handle = "0.6"
+rodio = { version = "0.20", default-features = false, features = ["wav", "vorbis"] }
+smithay-client-toolkit = "0.19"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi", "smallvec", "tracing-log"] }
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+wgpu = { version = "29", default-features = false, features = ["wgsl", "vulkan", "gles", "fragile-send-sync-non-atomic-wasm"] }
+xkbcommon = "0.7"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+opt-level = 1
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Lints we deliberately accept. Float-heavy simulation, dense numeric code,
+# and Wayland handler trait shapes make most of these noise rather than signal.
+cast_lossless = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+default_trait_access = "allow"
+float_cmp = "allow"
+ignored_unit_patterns = "allow"
+manual_let_else = "allow"
+many_single_char_names = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow"
+needless_raw_string_hashes = "allow"
+redundant_closure_for_method_calls = "allow"
+return_self_not_must_use = "allow"
+similar_names = "allow"
+too_many_arguments = "allow"
+too_many_lines = "allow"

@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      wayland:
+        patterns:
+          - "wayland-*"
+          - "smithay-*"
+          - "calloop*"
+      wgpu:
+        patterns:
+          - "wgpu*"
+          - "glyphon"
+          - "naga*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
