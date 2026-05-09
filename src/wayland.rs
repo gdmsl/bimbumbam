@@ -44,10 +44,13 @@ use crate::audio::Audio;
 use crate::color::hsl_to_rgb;
 use crate::config::Config;
 use crate::effect::{Effect, spawn_arrow, spawn_firework, spawn_letter, spawn_misc, spawn_rainbow};
-use crate::gpu::{Gpu, RenderParams};
-use crate::keys::{ArrowDir, EXIT_KEYSYM, ExitGate, KeyAction, PENDING_QUEUE_CAP, classify};
+use crate::gpu::{CaptureParams, Gpu, RenderParams};
+use crate::keys::{
+    ArrowDir, EXIT_KEYSYM, ExitGate, KeyAction, PENDING_QUEUE_CAP, classify, is_screenshot_keysym,
+};
 use crate::particle::Particle;
 use crate::render::{DrawBatch, FrameInputs, FrameText, build_frame};
+use crate::screenshot::{self, ScreenshotPhase};
 use crate::text::TextSystem;
 
 /// Frame interval target. 60 Hz is plenty for this app and avoids burning the
@@ -66,6 +69,10 @@ const MAX_SPAWNS_PER_FRAME: usize = 4;
 
 /// Splash screen duration in seconds.
 const SPLASH_TIME: f32 = 2.0;
+/// Period of the post-splash exit-hint reminder.
+const HINT_PERIOD_SECS: f32 = 30.0;
+/// How long the periodic hint stays on screen each cycle.
+const HINT_VISIBLE_SECS: f32 = 3.0;
 
 /// One layer-surface per `wl_output`.
 ///
@@ -141,6 +148,10 @@ pub struct App {
 
     exit_gate: ExitGate,
     pending_keys: Vec<KeyAction>,
+    /// Tracked alongside ctrl/alt so the screenshot chord (Ctrl+Shift+S) can
+    /// require the modifier to actually be held.
+    shift_held: bool,
+    screenshot: Option<ScreenshotPhase>,
     should_exit: bool,
 }
 
@@ -223,6 +234,8 @@ impl App {
             splash_time: SPLASH_TIME,
             exit_gate: ExitGate::default(),
             pending_keys: Vec::new(),
+            shift_held: false,
+            screenshot: None,
             should_exit: false,
         };
 
@@ -347,6 +360,18 @@ impl App {
         // so the foreground reads cleanly.
         let hue = (time * 0.03) % 1.0;
         let (br, bg, bb) = hsl_to_rgb(hue, 0.3, 0.08);
+        let clear = [f64::from(br), f64::from(bg), f64::from(bb)];
+
+        // Periodic exit hint. Skip while the splash is still painting its own.
+        let periodic_hint_alpha = if self.splash_time > 0.0 {
+            0.0
+        } else {
+            periodic_hint_alpha(time - SPLASH_TIME)
+        };
+
+        // Drive the screenshot state machine ahead of building the frame so
+        // the displayed countdown number reflects the current `now`.
+        self.advance_screenshot(now, sw, sh, clear);
 
         self.batch.clear();
         self.frame_texts.clear();
@@ -358,12 +383,149 @@ impl App {
                 particles: &self.particles,
                 exit_progress,
                 splash_time: self.splash_time,
+                periodic_hint_alpha,
+                screenshot: self.screenshot.as_ref(),
+                now,
                 canvas_w: sw,
                 canvas_h: sh,
             },
         );
 
-        self.render_all_surfaces(sw, sh, [f64::from(br), f64::from(bg), f64::from(bb)]);
+        self.render_all_surfaces(sw, sh, clear);
+    }
+
+    /// Drive the screenshot state machine: trip the capture when the
+    /// countdown elapses, drop the toast once it has been on screen long
+    /// enough.
+    fn advance_screenshot(&mut self, now: Instant, sw: f32, sh: f32, clear: [f64; 3]) {
+        // Step 1: countdown elapsed → take the picture and switch to Saved.
+        let mut do_capture = false;
+        if let Some(ScreenshotPhase::Counting { started }) = self.screenshot {
+            if now.saturating_duration_since(started) >= screenshot::COUNTDOWN {
+                do_capture = true;
+            }
+        }
+        if do_capture {
+            // Build a *clean* frame: no exit-progress bar, no periodic hint,
+            // no countdown overlay. That's what we want in the saved image.
+            self.batch.clear();
+            self.frame_texts.clear();
+            build_frame(
+                &mut self.batch,
+                &mut self.frame_texts,
+                FrameInputs {
+                    effects: &self.effects,
+                    particles: &self.particles,
+                    exit_progress: 0.0,
+                    splash_time: 0.0,
+                    periodic_hint_alpha: 0.0,
+                    screenshot: None,
+                    now,
+                    canvas_w: sw,
+                    canvas_h: sh,
+                },
+            );
+
+            // Materialise the text buffers for the capture (one shot, no
+            // surface scaling).
+            while self.frame_buffers.len() < self.frame_texts.len() {
+                self.frame_buffers
+                    .push(self.text_system.make_buffer("", 1.0, None));
+            }
+            for (buf, ft) in self
+                .frame_buffers
+                .iter_mut()
+                .zip(self.frame_texts.iter())
+                .take(self.frame_texts.len())
+            {
+                let metrics = glyphon::Metrics::new(ft.font_size, ft.font_size * 1.2);
+                buf.set_metrics(&mut self.text_system.font_system, metrics);
+                let attrs = glyphon::Attrs::new()
+                    .family(glyphon::Family::SansSerif)
+                    .weight(glyphon::Weight::BOLD);
+                buf.set_text(
+                    &mut self.text_system.font_system,
+                    &ft.text,
+                    &attrs,
+                    glyphon::Shaping::Advanced,
+                    None,
+                );
+                buf.shape_until_scroll(&mut self.text_system.font_system, false);
+            }
+            let text_areas: Vec<TextArea<'_>> = self
+                .frame_texts
+                .iter()
+                .zip(self.frame_buffers.iter())
+                .map(|(ft, buf)| TextArea {
+                    buffer: buf,
+                    left: ft.x,
+                    top: ft.y,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: sw as i32,
+                        bottom: sh as i32,
+                    },
+                    default_color: GlyphonColor::rgba(
+                        (ft.color.r * 255.0) as u8,
+                        (ft.color.g * 255.0) as u8,
+                        (ft.color.b * 255.0) as u8,
+                        (ft.color.a * 255.0) as u8,
+                    ),
+                    custom_glyphs: &[],
+                })
+                .collect();
+
+            let captured = self.gpu.capture(CaptureParams {
+                batch: &self.batch,
+                text_sys: &mut self.text_system,
+                text_areas: &text_areas,
+                width: sw as u32,
+                height: sh as u32,
+                clear_color: clear,
+            });
+
+            match captured {
+                Ok(frame) => {
+                    let dir = screenshot::resolve_dir();
+                    let path = screenshot::build_path(&dir);
+                    info!(path = %path.display(), "screenshot captured, saving in background");
+                    if let Some(a) = &mut self.audio {
+                        a.play_chime();
+                    }
+                    let path_for_thread = path.clone();
+                    std::thread::spawn(move || {
+                        match screenshot::write_png(
+                            &path_for_thread,
+                            frame.width,
+                            frame.height,
+                            &frame.rgba,
+                        ) {
+                            Ok(()) => info!(path = %path_for_thread.display(), "screenshot saved"),
+                            Err(e) => {
+                                warn!(error = %e, path = %path_for_thread.display(), "failed to save screenshot");
+                            }
+                        }
+                    });
+                    self.screenshot = Some(ScreenshotPhase::Saved {
+                        saved_at: now,
+                        path,
+                    });
+                }
+                Err(e) => {
+                    warn!(error = %e, "screenshot capture failed");
+                    self.screenshot = None;
+                }
+            }
+        }
+
+        // Step 2: drop the toast after its display window expires.
+        if let Some(ScreenshotPhase::Saved { saved_at, .. }) = &self.screenshot {
+            if now.saturating_duration_since(*saved_at) >= screenshot::TOAST {
+                self.screenshot = None;
+            }
+        }
     }
 
     fn dispatch_action(&mut self, action: KeyAction, sw: f32, sh: f32) {
@@ -542,6 +704,30 @@ impl App {
                 }
             }
         }
+    }
+}
+
+/// Triangle-shaped fade for the periodic exit-hint reminder. `elapsed` is
+/// time since splash ended.
+///
+/// Within each `HINT_PERIOD_SECS` window the hint fades in for 15 % of
+/// `HINT_VISIBLE_SECS`, holds at full alpha, then fades out for the trailing
+/// 15 %. Outside the visible window the alpha is 0.
+fn periodic_hint_alpha(elapsed: f32) -> f32 {
+    if elapsed <= 0.0 {
+        return 0.0;
+    }
+    let phase = elapsed % HINT_PERIOD_SECS;
+    if phase >= HINT_VISIBLE_SECS {
+        return 0.0;
+    }
+    let t = phase / HINT_VISIBLE_SECS;
+    if t < 0.15 {
+        t / 0.15
+    } else if t > 0.85 {
+        ((1.0 - t) / 0.15).max(0.0)
+    } else {
+        1.0
     }
 }
 
@@ -810,6 +996,18 @@ impl KeyboardHandler for App {
                 return;
             }
         }
+        if is_screenshot_keysym(sym)
+            && self.exit_gate.ctrl
+            && self.shift_held
+            && self.screenshot.is_none()
+        {
+            info!("screenshot chord pressed; starting countdown");
+            self.screenshot = Some(ScreenshotPhase::Counting {
+                started: Instant::now(),
+            });
+            // Suppress the "S" letter effect for the chord.
+            return;
+        }
         let action = classify(sym);
         debug!(?action, keysym = sym, "key pressed");
         self.enqueue_action(action);
@@ -838,6 +1036,7 @@ impl KeyboardHandler for App {
         _: u32,
     ) {
         self.exit_gate.set_modifiers(modifiers.ctrl, modifiers.alt);
+        self.shift_held = modifiers.shift;
     }
 }
 
@@ -904,5 +1103,39 @@ impl Dispatch<ZwpKeyboardShortcutsInhibitorV1, ()> for App {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn periodic_hint_is_zero_for_negative_elapsed() {
+        assert_eq!(periodic_hint_alpha(-1.0), 0.0);
+        assert_eq!(periodic_hint_alpha(0.0), 0.0);
+    }
+
+    #[test]
+    fn periodic_hint_holds_at_full_alpha_in_middle() {
+        // Halfway through the visible window we expect alpha = 1.0
+        assert!((periodic_hint_alpha(HINT_VISIBLE_SECS * 0.5) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn periodic_hint_is_zero_outside_visible_window() {
+        let half_period = HINT_PERIOD_SECS * 0.5;
+        // Halfway between two appearances should be silent.
+        assert_eq!(periodic_hint_alpha(HINT_VISIBLE_SECS + half_period), 0.0);
+    }
+
+    #[test]
+    fn periodic_hint_repeats_each_period() {
+        let mid_visible = HINT_VISIBLE_SECS * 0.5;
+        let first = periodic_hint_alpha(mid_visible);
+        let second = periodic_hint_alpha(HINT_PERIOD_SECS + mid_visible);
+        let third = periodic_hint_alpha(HINT_PERIOD_SECS * 2.0 + mid_visible);
+        assert!((first - second).abs() < 1e-5);
+        assert!((first - third).abs() < 1e-5);
     }
 }

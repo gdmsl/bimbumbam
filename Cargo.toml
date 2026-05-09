@@ -1,6 +1,6 @@
 [package]
 name = "bimbumbam"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A Wayland fullscreen toddler keyboard-basher with colorful, GPU-accelerated visual effects."
@@ -33,6 +33,7 @@ bytemuck = { version = "1", features = ["derive"] }
 calloop = "0.13"
 calloop-wayland-source = "0.3"
 glyphon = "0.11"
+png = "0.17"
 pollster = "0.4"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
 raw-window-handle = "0.6"

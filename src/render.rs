@@ -8,7 +8,9 @@
 use crate::color::{Color, WHITE};
 use crate::effect::{Effect, EffectKind};
 use crate::particle::{Particle, ParticleShape};
+use crate::screenshot::ScreenshotPhase;
 use bytemuck::{Pod, Zeroable};
+use std::time::Instant;
 
 /// Maximum vertices/indices the renderer will emit in one frame. Bounded so
 /// the GPU buffers can be sized statically. The simulation caps `Effect`s and
@@ -252,6 +254,17 @@ pub struct FrameInputs<'a> {
     pub particles: &'a [Particle],
     pub exit_progress: f32,
     pub splash_time: f32,
+    /// 0.0..=1.0 alpha for the periodic exit reminder. Computed by the app
+    /// from a wall-clock-driven cycle so the parent gets a refresher without
+    /// us holding any extra state here.
+    pub periodic_hint_alpha: f32,
+    /// When `Some`, the screenshot countdown / "saved" overlay is drawn over
+    /// the rest of the frame. The clean variant (passed to the GPU capture
+    /// path) sets this to `None`.
+    pub screenshot: Option<&'a ScreenshotPhase>,
+    /// `Instant::now()` for screenshot phase math; the app passes its own
+    /// clock so capture and on-screen overlays stay in sync.
+    pub now: Instant,
     pub canvas_w: f32,
     pub canvas_h: f32,
 }
@@ -262,6 +275,9 @@ pub fn build_frame(batch: &mut DrawBatch, texts: &mut Vec<FrameText>, inputs: Fr
         particles,
         exit_progress,
         splash_time,
+        periodic_hint_alpha,
+        screenshot,
+        now,
         canvas_w: sw,
         canvas_h: sh,
     } = inputs;
@@ -327,6 +343,92 @@ pub fn build_frame(batch: &mut DrawBatch, texts: &mut Vec<FrameText>, inputs: Fr
             y: sh - hint_size * 2.5,
             font_size: hint_size,
             color: WHITE.with_alpha(alpha * 0.6),
+        });
+    }
+
+    // Periodic post-splash reminder. Computed by the app — we just render it.
+    if periodic_hint_alpha > 0.0 {
+        let hint_size = (sh * 0.022).max(14.0);
+        texts.push(FrameText {
+            text: "hold Ctrl+Alt+Q for 3s to exit".into(),
+            x: sw * 0.5 - hint_size * 9.0,
+            y: sh - hint_size * 2.5,
+            font_size: hint_size,
+            color: WHITE.with_alpha(periodic_hint_alpha * 0.55),
+        });
+    }
+
+    // Screenshot countdown / saved overlay sits on top of everything else.
+    if let Some(phase) = screenshot {
+        draw_screenshot_overlay(batch, texts, phase, now, sw, sh);
+    }
+}
+
+fn draw_screenshot_overlay(
+    batch: &mut DrawBatch,
+    texts: &mut Vec<FrameText>,
+    phase: &ScreenshotPhase,
+    now: Instant,
+    sw: f32,
+    sh: f32,
+) {
+    if let Some(label) = phase.countdown_label(now) {
+        // Slight scrim so the number reads against busy effects.
+        batch.fill_rect(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.25));
+        let big = sh * 0.55;
+        let approx_w = big * 0.65 * (label.chars().count() as f32);
+        // Drop shadow for legibility.
+        texts.push(FrameText {
+            text: label.into(),
+            x: sw * 0.5 - approx_w * 0.5 + 6.0,
+            y: sh * 0.5 - big * 0.5 + 6.0,
+            font_size: big,
+            color: Color::new(0.0, 0.0, 0.0, 0.5),
+        });
+        texts.push(FrameText {
+            text: label.into(),
+            x: sw * 0.5 - approx_w * 0.5,
+            y: sh * 0.5 - big * 0.5,
+            font_size: big,
+            color: Color::new(1.0, 0.95, 0.4, 1.0),
+        });
+    } else if let Some((path, since)) = phase.saved() {
+        // Toast fades in 200 ms, holds, fades out in 500 ms before TOAST.
+        let total = crate::screenshot::TOAST.as_secs_f32();
+        let t = since.as_secs_f32().clamp(0.0, total);
+        let alpha = if t < 0.2 {
+            t / 0.2
+        } else if t > total - 0.5 {
+            ((total - t) / 0.5).max(0.0)
+        } else {
+            1.0
+        };
+        let pad = sh * 0.04;
+        let bar_h = sh * 0.085;
+        let bar_y = pad;
+        let bar_w = sw - pad * 2.0;
+        batch.fill_rect(
+            pad,
+            bar_y,
+            bar_w,
+            bar_h,
+            Color::new(0.0, 0.0, 0.0, 0.55 * alpha),
+        );
+        let label_size = bar_h * 0.32;
+        texts.push(FrameText {
+            text: "Saved!".into(),
+            x: pad + label_size,
+            y: bar_y + bar_h * 0.18,
+            font_size: label_size * 1.2,
+            color: Color::new(0.5, 1.0, 0.5, alpha),
+        });
+        let path_size = bar_h * 0.26;
+        texts.push(FrameText {
+            text: path.display().to_string(),
+            x: pad + label_size,
+            y: bar_y + bar_h * 0.55,
+            font_size: path_size,
+            color: WHITE.with_alpha(alpha * 0.85),
         });
     }
 }

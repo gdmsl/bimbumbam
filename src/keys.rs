@@ -124,6 +124,17 @@ pub fn classify(keysym: u32) -> KeyAction {
 /// in toddler-mashing patterns and conventional ("Q for quit").
 pub const EXIT_KEYSYM: u32 = keysyms::KEY_q;
 
+/// Whether the given keysym belongs to the screenshot chord (`Ctrl+Shift+S`).
+///
+/// xkb returns the *shifted* keysym when a modifier-affected level is
+/// active, so a literal Shift+S press arrives as `KEY_S` (uppercase), not
+/// `KEY_s`. Matching both lets us catch the chord regardless of which
+/// shift level the keymap reports.
+#[must_use]
+pub fn is_screenshot_keysym(sym: u32) -> bool {
+    sym == keysyms::KEY_s || sym == keysyms::KEY_S
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +160,14 @@ mod tests {
             KeyAction::Misc(_) => {}
             other => panic!("expected Misc, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn screenshot_keysym_matches_both_cases() {
+        assert!(is_screenshot_keysym(keysyms::KEY_s));
+        assert!(is_screenshot_keysym(keysyms::KEY_S));
+        assert!(!is_screenshot_keysym(keysyms::KEY_a));
+        assert!(!is_screenshot_keysym(keysyms::KEY_q));
     }
 
     #[test]
