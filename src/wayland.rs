@@ -46,7 +46,7 @@ use crate::config::Config;
 use crate::effect::{Effect, spawn_arrow, spawn_firework, spawn_letter, spawn_misc, spawn_rainbow};
 use crate::gpu::{CaptureParams, Gpu, RenderParams};
 use crate::keys::{
-    ArrowDir, EXIT_KEYSYM, ExitGate, KeyAction, PENDING_QUEUE_CAP, SCREENSHOT_KEYSYM, classify,
+    ArrowDir, EXIT_KEYSYM, ExitGate, KeyAction, PENDING_QUEUE_CAP, classify, is_screenshot_keysym,
 };
 use crate::particle::Particle;
 use crate::render::{DrawBatch, FrameInputs, FrameText, build_frame};
@@ -996,7 +996,7 @@ impl KeyboardHandler for App {
                 return;
             }
         }
-        if sym == SCREENSHOT_KEYSYM
+        if is_screenshot_keysym(sym)
             && self.exit_gate.ctrl
             && self.shift_held
             && self.screenshot.is_none()
