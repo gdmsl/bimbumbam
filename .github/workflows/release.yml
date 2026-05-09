@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build linux x86_64 binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libfontconfig-dev \
+            libfreetype-dev \
+            libvulkan-dev \
+            libasound2-dev \
+            pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: package
+        run: |
+          mkdir -p dist
+          cp target/release/bimbumbam dist/
+          cp README.md LICENSE CHANGELOG.md dist/
+          tar -czf bimbumbam-${GITHUB_REF_NAME}-x86_64-linux.tar.gz -C dist .
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: bimbumbam-*.tar.gz
+          generate_release_notes: true
