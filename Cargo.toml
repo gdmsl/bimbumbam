@@ -37,7 +37,7 @@ png = "0.17"
 pollster = "0.4"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
 raw-window-handle = "0.6"
-rodio = { version = "0.20", default-features = false, features = ["wav", "vorbis"] }
+rodio = { version = "0.21", default-features = false, features = ["wav", "vorbis"] }
 smithay-client-toolkit = "0.19"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi", "smallvec", "tracing-log"] }
