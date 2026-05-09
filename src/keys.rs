@@ -124,6 +124,11 @@ pub fn classify(keysym: u32) -> KeyAction {
 /// in toddler-mashing patterns and conventional ("Q for quit").
 pub const EXIT_KEYSYM: u32 = keysyms::KEY_q;
 
+/// The keysym used as the third leg of the screenshot chord (Ctrl + Shift + S).
+/// Adding `Shift` differentiates it from the toddler-friendly default
+/// behaviour of bare letter keys.
+pub const SCREENSHOT_KEYSYM: u32 = keysyms::KEY_s;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Periodic exit-hint reminder.** The "hold Ctrl+Alt+Q for 3 s to exit"
+  cue now fades in at the bottom of the screen every 30 s for 3 s, so a
+  parent walking up to a running session always finds it discoverable.
+- **Screenshot mode.** `Ctrl+Shift+S` starts a 3-second on-screen
+  countdown, then captures the clean canvas (no overlays) via an
+  offscreen wgpu render + buffer readback, encodes it as PNG on a
+  background thread, and displays a `Saved → <path>` toast. Output goes
+  to `$XDG_PICTURES_DIR` / `$HOME/Pictures` / cwd as
+  `bimbumbam-<unix-timestamp>.png`.
+
 ## [0.6.0] - 2026-05-09
 
 Initial public release.

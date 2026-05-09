@@ -15,5 +15,6 @@ pub mod gpu;
 pub mod keys;
 pub mod particle;
 pub mod render;
+pub mod screenshot;
 pub mod text;
 pub mod wayland;

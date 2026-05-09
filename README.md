@@ -165,12 +165,23 @@ includes the location.
 | Enter          | Rainbow shockwave + chord           |
 | Arrow keys     | Flying polygon                      |
 | Anything else  | Random shape, spiral, or burst      |
+| `Ctrl+Shift+S` | Start a 3 s countdown, then save a PNG of the clean frame |
 
 ### Exiting
 
 Hold **Ctrl + Alt + Q** for **three seconds**. A red progress bar in the
 top-right confirms the chord is being recognised. Releasing any of the three
-keys resets the timer.
+keys resets the timer. The hint also re-fades in at the bottom of the screen
+every 30 s so you don't have to remember it cold.
+
+### Saving a screenshot
+
+Press **Ctrl + Shift + S** to start a 3-second countdown (`3 → 2 → 1`). At
+zero, bimbumbam captures the *clean* frame (no overlays) of the canonical
+canvas, encodes it as PNG on a background thread, and shows a `Saved →
+<path>` toast for ~2 s. Files land in `$XDG_PICTURES_DIR`,
+`$HOME/Pictures` if it exists, or the current working directory, named
+`bimbumbam-<unix-timestamp>.png`.
 
 ## How it works
 

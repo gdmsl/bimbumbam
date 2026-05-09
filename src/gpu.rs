@@ -107,6 +107,22 @@ pub struct RenderParams<'a, 'b> {
     pub clear_color: [f64; 3],
 }
 
+pub struct CaptureParams<'a, 'b> {
+    pub batch: &'a DrawBatch,
+    pub text_sys: &'a mut TextSystem,
+    pub text_areas: &'a [TextArea<'b>],
+    pub width: u32,
+    pub height: u32,
+    pub clear_color: [f64; 3],
+}
+
+/// Captured frame: RGBA8 row-tightly-packed pixels plus dimensions.
+pub struct CapturedFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 impl Gpu {
     pub fn new() -> Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -500,5 +516,180 @@ impl Gpu {
         output.present();
         text_sys.atlas.trim();
         true
+    }
+
+    /// Render a single frame at scale=1, offset=(0,0) to an offscreen texture
+    /// and read it back as RGBA8 bytes.
+    ///
+    /// Used by the screenshot pipeline. Synchronous: blocks the calling
+    /// thread until the GPU has finished and the readback buffer maps. The
+    /// caller is expected to hand the result off to a worker thread for
+    /// PNG encoding.
+    pub fn capture(&self, params: CaptureParams<'_, '_>) -> Result<CapturedFrame> {
+        let CaptureParams {
+            batch,
+            text_sys,
+            text_areas,
+            width,
+            height,
+            clear_color,
+        } = params;
+
+        if width == 0 || height == 0 {
+            return Err(anyhow!("cannot capture a zero-sized frame"));
+        }
+
+        // Offscreen colour target. RENDER_ATTACHMENT for the pass, COPY_SRC so
+        // we can blit it into a buffer afterwards.
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("bimbumbam.capture.tex"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: SURFACE_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+
+        text_sys
+            .viewport
+            .update(&self.queue, Resolution { width, height });
+        if let Err(e) = text_sys.renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut text_sys.font_system,
+            &mut text_sys.atlas,
+            &text_sys.viewport,
+            text_areas.iter().cloned(),
+            &mut text_sys.swash_cache,
+        ) {
+            tracing::warn!(error = %e, "glyphon prepare failed during capture");
+        }
+
+        if !batch.vertices.is_empty() {
+            let uniforms = Uniforms {
+                screen_size: [width as f32, height as f32],
+                scale: 1.0,
+                _pad0: 0.0,
+                offset: [0.0, 0.0],
+                _pad1: [0.0, 0.0],
+            };
+            self.queue
+                .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+            self.queue.write_buffer(
+                &self.vertex_buffer,
+                0,
+                bytemuck::cast_slice(&batch.vertices),
+            );
+            self.queue
+                .write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&batch.indices));
+        }
+
+        // Buffer rows must be aligned to COPY_BYTES_PER_ROW_ALIGNMENT (256).
+        let unpadded_bytes_per_row = width * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        let buffer_size = u64::from(padded_bytes_per_row) * u64::from(height);
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("bimbumbam.capture.buf"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("bimbumbam.capture.pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: clear_color[0],
+                            g: clear_color[1],
+                            b: clear_color[2],
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            if !batch.vertices.is_empty() {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..batch.indices.len() as u32, 0, 0..1);
+            }
+            if let Err(e) = text_sys
+                .renderer
+                .render(&text_sys.atlas, &text_sys.viewport, &mut pass)
+            {
+                tracing::warn!(error = %e, "glyphon render failed during capture");
+            }
+        }
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        // Block until the readback buffer is mapped.
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        self.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        rx.recv()
+            .map_err(|_| anyhow!("capture readback channel closed unexpectedly"))?
+            .map_err(|e| anyhow!("buffer map failed: {e:?}"))?;
+
+        let data = slice.get_mapped_range();
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        // Strip row-padding and swap BGRA → RGBA. SURFACE_FORMAT is sRGB BGRA.
+        for row in 0..height {
+            let row_start = (row * padded_bytes_per_row) as usize;
+            for x in 0..width as usize {
+                let p = row_start + x * 4;
+                rgba.extend_from_slice(&[data[p + 2], data[p + 1], data[p], data[p + 3]]);
+            }
+        }
+        drop(data);
+        buffer.unmap();
+
+        Ok(CapturedFrame {
+            width,
+            height,
+            rgba,
+        })
     }
 }
