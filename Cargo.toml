@@ -44,7 +44,7 @@ wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
 wgpu = { version = "29", default-features = false, features = ["wgsl", "vulkan", "gles", "fragile-send-sync-non-atomic-wasm"] }
-xkbcommon = "0.7"
+xkbcommon = "0.9"
 
 [profile.release]
 opt-level = 3
