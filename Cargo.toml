@@ -33,7 +33,7 @@ bytemuck = { version = "1", features = ["derive"] }
 calloop = "0.13"
 calloop-wayland-source = "0.3"
 glyphon = "0.11"
-png = "0.17"
+png = "0.18"
 pollster = "0.4"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
 raw-window-handle = "0.6"
