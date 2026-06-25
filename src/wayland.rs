@@ -554,7 +554,9 @@ impl App {
                     &mut self.particles,
                 );
                 if let Some(a) = &mut self.audio {
-                    a.play_note(15);
+                    // A low, round note for the firework — Space is the most
+                    // hammered key, so the top of the scale would grow piercing.
+                    a.play_note(3);
                 }
             }
             KeyAction::Enter => {
