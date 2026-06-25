@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-25
+
+### Changed
+
+- **Gentler, instrument-like notes.** Each key now plays a struck
+  music-box/glockenspiel voice — harmonic partials under a fast-attack,
+  decaying envelope — instead of a constant-amplitude sine. The envelope
+  starts and ends at silence, removing the click/pop at the start and end
+  of every note, and the timbre is warmer and less robotic. Per-note
+  levels and the simultaneous-note cap were lowered so fast mashing stays
+  soft rather than clipping, and Space now plays a low, round note instead
+  of the piercing top of the scale.
+
 ### Added
 
 - **Periodic exit-hint reminder.** The "hold Ctrl+Alt+Q for 3 s to exit"
