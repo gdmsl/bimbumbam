@@ -32,7 +32,7 @@ anyhow = "1.0"
 bytemuck = { version = "1", features = ["derive"] }
 calloop = "0.13"
 calloop-wayland-source = "0.3"
-glyphon = "0.11"
+glyphon = "0.12"
 png = "0.17"
 pollster = "0.4"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
-wgpu = { version = "29", default-features = false, features = ["wgsl", "vulkan", "gles", "fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "30", default-features = false, features = ["wgsl", "vulkan", "gles", "fragile-send-sync-non-atomic-wasm"] }
 xkbcommon = "0.7"
 
 [profile.release]
