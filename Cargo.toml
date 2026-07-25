@@ -30,15 +30,15 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 bytemuck = { version = "1", features = ["derive"] }
-calloop = "0.13"
-calloop-wayland-source = "0.3"
+calloop = "0.14"
+calloop-wayland-source = "0.4"
 glyphon = "0.11"
 png = "0.17"
 pollster = "0.4"
 rand = { version = "0.9", default-features = false, features = ["std", "std_rng", "small_rng", "os_rng"] }
 raw-window-handle = "0.6"
 rodio = { version = "0.20", default-features = false, features = ["wav", "vorbis"] }
-smithay-client-toolkit = "0.19"
+smithay-client-toolkit = "0.20"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi", "smallvec", "tracing-log"] }
 wayland-backend = { version = "0.3", features = ["client_system"] }
